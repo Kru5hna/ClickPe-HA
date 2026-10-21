@@ -1,0 +1,12 @@
+# Python dependencies for the csv_processor Lambda
+#
+# psycopg2-binary: PostgreSQL adapter for Python.
+#   - "binary" version includes pre-compiled C libraries so it works
+#     on Lambda without needing to compile from source.
+#   - This is what lets us run SQL queries like cursor.execute("SELECT ...")
+#   - Regular psycopg2 requires compiling C code, which fails on Lambda.
+#
+# NOTE: boto3 is NOT listed here because Lambda pre-installs it.
+#   Every Lambda function comes with boto3 (AWS SDK) already available.
+#   Listing it here would just increase the deployment package size.
+psycopg2-binary==2.9.9
