@@ -1,0 +1,43 @@
+version: "3.8"  # Docker Compose file format version (3.8 is widely supported)
+
+services:
+
+# Service 1 -------------------------
+
+  postgres:
+    image: postgres:16          # Official Postgres image, version 16 (latest stable)
+    container_name: clickpe_postgres
+    restart: unless-stopped     # Auto-restart if it crashes, but not if you stop it manually
+
+    environment:
+      # These env vars are read by the Postgres image on first startup
+      # to create the initial database and user credentials.
+      POSTGRES_USER: clickpe_user         
+      POSTGRES_PASSWORD: clickpe_pass     
+      POSTGRES_DB: clickpe_db             
+
+    ports:
+      # HOST_PORT:CONTAINER_PORT
+      # Maps port 5432 inside the container to 5432 on your machine.
+      # This lets tools like pgAdmin or DBeaver connect from your laptop.
+      - "5432:5432"
+
+    volumes:
+      # NAMED VOLUME: Persists database files across container restarts.
+      # Without this, your data would be lost every time you run `docker compose down`.
+      - postgres_data:/var/lib/postgresql/data
+
+      # BIND MOUNT: Copies our schema.sql into the container's init directory.
+      # Postgres automatically runs any .sql files in /docker-entrypoint-initdb.d/
+      # on FIRST startup (when the database is brand new).
+      # This creates our users, loan_products, and matches tables automatically.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+
+    healthcheck:
+      # Docker will periodically run this command to check if Postgres is ready.
+      # Other services (like n8n) can wait for this before starting.
+      test: ["CMD-SHELL", "pg_isready -U clickpe_user -d clickpe_db"]
+      interval: 5s      # Check every 5 seconds
+      timeout: 5s        # Give up if check takes more than 5 seconds
+      retries: 5          # Mark unhealthy after 5 consecutive failures
+
