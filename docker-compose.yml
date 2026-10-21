@@ -41,3 +41,66 @@ services:
       timeout: 5s        # Give up if check takes more than 5 seconds
       retries: 5          # Mark unhealthy after 5 consecutive failures
 
+# Service 2 -------------------------
+  n8n:
+    image: n8nio/n8n:latest     # Official n8n Docker image
+    container_name: clickpe_n8n
+    restart: unless-stopped
+
+    environment:
+      # --- n8n's own database ---
+      # n8n needs a database to store its workflows, credentials, and execution
+      # history. By default it uses SQLite, but we point it to our Postgres
+      # for reliability. This is n8n's INTERNAL storage, separate from our
+      # app tables (users, loan_products, matches).
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres          # Hostname = the service name above
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: clickpe_db    # Same database, different tables
+      DB_POSTGRESDB_USER: clickpe_user
+      DB_POSTGRESDB_PASSWORD: clickpe_pass
+
+      # --- n8n configuration ---
+      # WEBHOOK_URL: The base URL n8n uses when generating webhook URLs.
+      # When Lambda finishes processing a CSV, it calls this URL to trigger
+      # Workflow B. "host.docker.internal" is a special Docker hostname that
+      # points to your host machine (your laptop).
+      WEBHOOK_URL: http://localhost:5678
+
+      # N8N_SECURE_COOKIE: Set to false for local HTTP development.
+      # In production with HTTPS, you'd set this to true.
+      N8N_SECURE_COOKIE: "false"
+
+      # GENERIC_TIMEZONE: So scheduled triggers (Workflow A runs daily) use
+      # your timezone, not UTC.
+      GENERIC_TIMEZONE: Asia/Kolkata
+
+      # N8N_DIAGNOSTICS_ENABLED: Disable telemetry/analytics for privacy.
+      N8N_DIAGNOSTICS_ENABLED: "false"
+
+    ports:
+      # n8n's web UI runs on port 5678.
+      # You'll open http://localhost:5678 in your browser to build workflows.
+      - "5678:5678"
+
+    volumes:
+      # Persists n8n data (workflows, credentials, execution logs).
+      # Without this, you'd lose all your workflows when the container restarts.
+      - n8n_data:/home/node/.n8n
+
+    depends_on:
+      postgres:
+        condition: service_healthy   # Wait for Postgres to be ready before starting n8n
+        # WHY: If n8n starts before Postgres is ready, it can't connect to the
+        # database and will crash on startup.
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+# Named volumes are Docker-managed storage locations on your disk.
+# They survive `docker compose down` and `docker compose up` cycles.
+# To truly delete all data: `docker compose down -v` (the -v flag removes volumes)
+# =============================================================================
+volumes:
+  postgres_data:    # Stores PostgreSQL database files
+  n8n_data:         # Stores n8n workflows, credentials, execution history
