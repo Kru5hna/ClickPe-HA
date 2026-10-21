@@ -1,0 +1,40 @@
+# =============================================================================
+# .gitignore — Files that should NOT be committed to Git
+# =============================================================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+venv/
+.env
+
+# Node.js (Serverless Framework)
+node_modules/
+.serverless/
+package-lock.json
+
+# n8n data (contains credentials — NEVER commit these)
+n8n_data/
+
+# Docker volumes
+postgres_data/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AWS credentials (NEVER commit these)
+.aws/
+credentials
