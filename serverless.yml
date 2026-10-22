@@ -7,7 +7,7 @@ plugins:
 provider:
   name: aws # We're deploying to AWS (not Azure, GCP, etc.)
   runtime: python3.11 # Lambda runtime — Python 3.11 is latest stable
-  region: ap-south-1 # Mumbai region (closest to India for low latency)
+  region: us-east-1 # N. Virginia (matches SES and S3 bucket region)
   stage: dev # Deployment stage (dev/staging/prod)
 
   # ENVIRONMENT VARIABLES available to ALL Lambda functions in this service.

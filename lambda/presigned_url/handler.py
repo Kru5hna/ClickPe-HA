@@ -6,7 +6,7 @@ import os           # For reading environment variables
 # Initialize the S3 client.
 # boto3 automatically uses the Lambda's IAM role for credentials.
 # (You don't need to hardcode AWS keys — Lambda gets permissions from its role.)
-s3_client = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+s3_client = boto3.client("s3", region_name="us-east-1")
 
 # The S3 bucket name comes from an environment variable set in serverless.yml.
 # In serverless-offline, CloudFormation !Ref resolves to '[object Object]', so we fallback
