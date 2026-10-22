@@ -1,0 +1,21 @@
+# =============================================================================
+# SERVERLESS FRAMEWORK CONFIGURATION
+# =============================================================================
+# WHAT IS SERVERLESS FRAMEWORK?
+#   A tool that reads this YAML file and automatically creates AWS resources
+#   (Lambda functions, S3 buckets, IAM roles, API Gateway endpoints, etc.)
+#   You run `serverless deploy` and it does everything — no clicking around
+#   in the AWS Console.
+#
+# WHY USE IT?
+#   The task requires: "A serverless.yml file to deploy all required AWS resources."
+#   It also makes your infrastructure reproducible — anyone can deploy the same
+#   setup by running one command.
+#
+# HOW TO DEPLOY:
+#   1. Install: npm install -g serverless
+#   2. Configure AWS credentials: serverless config credentials --provider aws
+#      --key YOUR_KEY --secret YOUR_SECRET
+#   3. Deploy: serverless deploy
+#   4. Remove everything: serverless remove
+# =============================================================================

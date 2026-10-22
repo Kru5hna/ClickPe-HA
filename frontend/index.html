@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClickPe — Loan Eligibility Engine</title>
+    <meta name="description" content="Upload user data CSV to match users with eligible personal loan products">
+
+    <!-- Typography: Instrument Serif for editorial headline, JetBrains Mono for technical UI/code, Inter for sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            /* Black Theme (Default) */
+            --bg-page: #0a0a0a;
+            --bg-card: #111111;
+            --bg-subtle: #171717;
+            --bg-hover: #222222;
+            --text-primary: #ffffff;
+            --text-secondary: #a3a3a3;
+            --text-muted: #666666;
+            --border: #ffffff;
+            --border-light: #262626;
+            --border-dashed: #555555;
+            --box-shadow: 4px 4px 0px #ffffff;
+            --box-shadow-sm: 2px 2px 0px #ffffff;
+            --btn-bg: #ffffff;
+            --btn-text: #000000;
+            --btn-hover-bg: #000000;
+            --btn-hover-text: #ffffff;
+            --btn-disabled-bg: #1a1a1a;
+            --btn-disabled-text: #555555;
+            --btn-disabled-border: #333333;
+            --input-bg: #050505;
+            --input-text: #ffffff;
+            --progress-track: #1c1c1c;
+            --progress-fill: #ffffff;
+            --log-bg: #050505;
+            --badge-bg: #ffffff;
+            --badge-text: #000000;
+            --tag-bg: #222222;
+            --tag-text: #ffffff;
+            --tag-border: #444444;
+            --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        }
+
+        [data-theme="light"] {
+            /* Light Theme */
+            --bg-page: #ffffff;
+            --bg-card: #ffffff;
+            --bg-subtle: #f8f9fa;
+            --bg-hover: #f0f0f0;
+            --text-primary: #000000;
+            --text-secondary: #555555;
+            --text-muted: #888888;
+            --border: #000000;
+            --border-light: #e0e0e0;
+            --border-dashed: #000000;
+            --box-shadow: 4px 4px 0px #000000;
+            --box-shadow-sm: 2px 2px 0px #000000;
+            --btn-bg: #000000;
+            --btn-text: #ffffff;
+            --btn-hover-bg: #ffffff;
+            --btn-hover-text: #000000;
+            --btn-disabled-bg: #f4f4f4;
+            --btn-disabled-text: #888888;
+            --btn-disabled-border: #cccccc;
+            --input-bg: #ffffff;
+            --input-text: #000000;
+            --progress-track: #f0f0f0;
+            --progress-fill: #000000;
+            --log-bg: #ffffff;
+            --badge-bg: #000000;
+            --badge-text: #ffffff;
+            --tag-bg: #e8e8e8;
+            --tag-text: #000000;
+            --tag-border: #d0d0d0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-page);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 40px 20px 80px;
+        }
+
+        /* ==================== TOP NAV ==================== */
+        .top-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border-light);
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+
+        .top-tag {
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+
+        .theme-toggle-btn {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .theme-toggle-btn:hover {
+            background: var(--text-primary);
+            color: var(--bg-page);
+        }
+
+        /* ==================== HEADER ==================== */
+        .header {
+            text-align: center;
+            margin-bottom: 36px;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .logo-text {
+            font-family: var(--font-serif);
+            font-size: 52px;
+            font-weight: 400;
+            letter-spacing: -0.01em;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .subtitle {
+            font-family: var(--font-sans);
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.6;
+            max-width: 520px;
+            margin: 12px auto 0;
+        }
+
+        /* ==================== UPLOAD CARD ==================== */
+        .upload-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            padding: 32px;
+            box-shadow: var(--box-shadow);
+        }
+
+        /* ==================== DROP ZONE ==================== */
+        .drop-zone {
+            border: 1px dashed var(--border-dashed);
+            border-radius: 0;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            background: var(--bg-subtle);
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .drop-zone.drag-over {
+            border-style: solid;
+            border-color: var(--border);
+            background: var(--bg-hover);
+        }
+
+        .drop-zone.has-file {
+            border-style: solid;
+            border-color: var(--border);
+            background: var(--bg-card);
+        }
+
+        .drop-zone:hover {
+            background: var(--bg-hover);
+        }
+
+        .drop-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .drop-text {
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .drop-text strong {
+            text-decoration: underline;
+            font-weight: 600;
+        }
+
+        .drop-hint {
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.5;
+            max-width: 460px;
+            margin: 0 auto;
+        }
+
+        .file-name {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 4px 10px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 500;
+            background: var(--badge-bg);
+            color: var(--badge-text);
+            border: 1px solid var(--border);
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* ==================== CONFIG SECTION ==================== */
+        .config-section {
+            margin-top: 20px;
+            padding: 18px;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-light);
+            border-radius: 0;
+        }
+
+        .config-label {
+            display: block;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .config-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            color: var(--input-text);
+            font-family: var(--font-mono);
+            font-size: 13px;
+        }
+
+        .config-input:focus {
+            outline: 2px solid var(--border);
+            outline-offset: -1px;
+        }
+
+        .config-hint {
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        .config-hint code {
+            background: var(--tag-bg);
+            padding: 2px 6px;
+            border: 1px solid var(--tag-border);
+            color: var(--tag-text);
+            font-size: 11px;
+        }
+
+        /* ==================== UPLOAD BUTTON ==================== */
+        .upload-btn {
+            width: 100%;
+            margin-top: 20px;
+            padding: 14px 24px;
+            background: var(--btn-bg);
+            color: var(--btn-text);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .upload-btn:hover:not(:disabled) {
+            background: var(--btn-hover-bg);
+            color: var(--btn-hover-text);
+        }
+
+        .upload-btn:disabled {
+            background: var(--btn-disabled-bg);
+            color: var(--btn-disabled-text);
+            border-color: var(--btn-disabled-border);
+            cursor: not-allowed;
+            letter-spacing: 0.08em;
+        }
+
+        /* ==================== PROGRESS BAR ==================== */
+        .progress-container {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: var(--progress-track);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--progress-fill);
+            border-radius: 0;
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+
+        .progress-text {
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 6px;
+            text-align: right;
+        }
+
+        /* ==================== STATUS LOG ==================== */
+        .status-log {
+            display: none;
+            margin-top: 20px;
+            padding: 16px;
+            background: var(--log-bg);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            max-height: 240px;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 12px;
+        }
+
+        .status-log.active {
+            display: block;
+        }
+
+        .status-entry {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .status-entry:last-child {
+            border-bottom: none;
+        }
+
+        .status-icon {
+            flex-shrink: 0;
+            font-size: 12px;
+        }
+
+        .status-message {
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .status-message.success {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .status-message.error {
+            color: var(--text-primary);
+            font-weight: 600;
+            text-decoration: underline;
+        }
+
+        .status-message.warning {
+            color: var(--text-muted);
+        }
+
+        /* ==================== PIPELINE INFO ==================== */
+        .pipeline-info {
+            margin-top: 36px;
+            padding: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            box-shadow: var(--box-shadow);
+        }
+
+        .pipeline-title {
+            font-family: var(--font-serif);
+            font-size: 26px;
+            font-weight: 400;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        .pipeline-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .pipeline-step {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-light);
+            border-radius: 0;
+        }
+
+        .step-number {
+            width: 22px;
+            height: 22px;
+            background: var(--badge-bg);
+            color: var(--badge-text);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .step-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .step-text strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 600px) {
+            .container { padding: 24px 14px; }
+            .upload-card { padding: 20px; box-shadow: var(--box-shadow-sm); }
+            .pipeline-info { padding: 18px; box-shadow: var(--box-shadow-sm); }
+            .logo-text { font-size: 38px; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+
+        <div class="top-nav">
+            <span class="top-tag">> CLICKPE :: ENGINE [ACTIVE]</span>
+            <button type="button" class="theme-toggle-btn" id="themeToggle">LIGHT MODE</button>
+        </div>
+
+        <div class="header">
+            <div class="logo">
+                <!-- <div class="logo-icon">💰</div> -->
+                <span class="logo-text">ClickPe</span>
+            </div>
+            <p class="subtitle">
+                Loan Eligibility Engine - Upload user data to automatically<br>
+                match users with personal loan products they qualify for.
+            </p>
+        </div>
+
+        <div class="upload-card">
+
+            <!--
+                DROP ZONE: Click or drag-and-drop to select a CSV file.
+                The hidden <input type="file"> is triggered by JavaScript.
+            -->
+            <div class="drop-zone" id="dropZone">
+                <span class="drop-icon">📄</span>
+                <div class="drop-text">Drop your CSV file here, or <strong>click to browse</strong></div>
+                <div class="drop-hint">Accepts .csv files — user_id, name, email, monthly_income, credit_score, employment_status, age</div>
+                <div class="file-name" id="fileName" style="display: none;"></div>
+                <!-- Hidden file input. "accept=.csv" limits the file picker to CSV files -->
+                <input type="file" id="fileInput" class="file-input" accept=".csv">
+            </div>
+
+            <!--
+                API URL CONFIG: Where to get the presigned URL.
+                For local testing: points to a local endpoint.
+                After AWS deploy: paste your API Gateway URL here.
+            -->
+            <div class="config-section">
+                <label class="config-label" for="apiUrl">API Endpoint</label>
+                <input type="text" id="apiUrl" class="config-input"
+                       value="http://localhost:3000/dev/upload-url"
+                       placeholder="https://your-api.execute-api.region.amazonaws.com/dev/upload-url">
+                <div class="config-hint">
+                    Local: use <code>http://localhost:3000/dev/upload-url</code> (serverless offline) &nbsp;|&nbsp;
+                    AWS: paste your API Gateway URL after deploying
+                </div>
+            </div>
+
+            <!-- UPLOAD BUTTON -->
+            <button class="upload-btn" id="uploadBtn" disabled>
+                Select a CSV file to begin
+            </button>
+
+            <!-- PROGRESS BAR: Shows upload progress -->
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Uploading...</div>
+            </div>
+
+            <!-- STATUS LOG: Step-by-step pipeline progress -->
+            <div class="status-log" id="statusLog"></div>
+        </div>
+
+        <!-- ==================== PIPELINE INFO ==================== -->
+        <div class="pipeline-info">
+            <div class="pipeline-title">📋 What happens after upload?</div>
+            <div class="pipeline-steps">
+                <div class="pipeline-step">
+                    <span class="step-number">1</span>
+                    <span class="step-text"><strong>Presigned URL:</strong> Browser gets a temporary upload URL from Lambda</span>
+                </div>
+                <div class="pipeline-step">
+                    <span class="step-number">2</span>
+                    <span class="step-text"><strong>Direct S3 Upload:</strong> File goes straight to S3 (no Lambda size limits)</span>
+                </div>
+                <div class="pipeline-step">
+                    <span class="step-number">3</span>
+                    <span class="step-text"><strong>CSV Processing:</strong> S3 triggers Lambda to parse CSV → insert into Postgres</span>
+                </div>
+                <div class="pipeline-step">
+                    <span class="step-number">4</span>
+                    <span class="step-text"><strong>Matching Engine:</strong> n8n Workflow B matches users to eligible loan products</span>
+                </div>
+                <div class="pipeline-step">
+                    <span class="step-number">5</span>
+                    <span class="step-text"><strong>Notifications:</strong> n8n Workflow C sends personalized emails via AWS SES</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // =========================================================================
+    // JAVASCRIPT — Upload Logic
+    // =========================================================================
+    // This script handles:
+    //   1. File selection (click or drag-and-drop)
+    //   2. Calling the Lambda API to get a presigned S3 URL
+    //   3. Uploading the CSV directly to S3 using that URL
+    //   4. Showing progress and status updates
+    // =========================================================================
+
+    // --- THEME TOGGLE (Default: Black / Dark Theme) ---
+    const themeToggleBtn = document.getElementById('themeToggle');
+    function applyTheme(theme) {
+        if (theme === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+            if (themeToggleBtn) themeToggleBtn.textContent = 'BLACK MODE';
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+            if (themeToggleBtn) themeToggleBtn.textContent = 'LIGHT MODE';
+        }
+        try { localStorage.setItem('clickpe_theme', theme); } catch(e) {}
+    }
+
+    const savedTheme = (function() {
+        try { return localStorage.getItem('clickpe_theme') || 'dark'; } catch(e) { return 'dark'; }
+    })();
+    applyTheme(savedTheme);
+
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener('click', () => {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            applyTheme(isLight ? 'dark' : 'light');
+        });
+    }
+
+    // --- DOM ELEMENT REFERENCES ---
+    // We grab these once and reuse them throughout the script.
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileName = document.getElementById('fileName');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const apiUrlInput = document.getElementById('apiUrl');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const statusLog = document.getElementById('statusLog');
+
+    // The currently selected file (null until user picks one)
+    let selectedFile = null;
+
+    // =========================================================================
+    // FILE SELECTION — Click and Drag-and-Drop
+    // =========================================================================
+
+    // When the drop zone is clicked, trigger the hidden file input.
+    // This opens the native file picker dialog.
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    // When a file is selected through the file picker dialog:
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFile(e.target.files[0]);
+        }
+    });
+
+    // --- DRAG AND DROP EVENTS ---
+    // These four events handle the drag-and-drop UX:
+
+    // "dragover": Fires continuously while a file is being dragged over the zone.
+    // We call preventDefault() to tell the browser "we accept this drop".
+    // Without this, the browser would open the file instead of dropping it.
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    // "dragleave": File dragged away from the zone — remove visual highlight.
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+
+    // "drop": File is dropped — extract it from the event and handle it.
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length > 0) {
+            handleFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    /**
+     * handleFile — Validates and stores the selected file.
+     *
+     * WHY VALIDATE?
+     *   We check the file extension to give immediate feedback if the user
+     *   picks the wrong file type (e.g., a .xlsx Excel file).
+     */
+    function handleFile(file) {
+        // Check file extension
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+            addStatus('❌', 'Please select a .csv file', 'error');
+            return;
+        }
+
+        selectedFile = file;
+
+        // Update the UI to show the selected file
+        dropZone.classList.add('has-file');
+        fileName.textContent = `✅ ${file.name} (${formatFileSize(file.size)})`;
+        fileName.style.display = 'block';
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = `Upload ${file.name}`;
+    }
+
+    /**
+     * formatFileSize — Converts bytes to a human-readable string.
+     * Example: 993191 → "970.1 KB"
+     */
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // =========================================================================
+    // UPLOAD LOGIC — The 3-step presigned URL flow
+    // =========================================================================
+
+    uploadBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        const apiUrl = apiUrlInput.value.trim();
+        if (!apiUrl) {
+            addStatus('❌', 'Please enter the API endpoint URL', 'error');
+            return;
+        }
+
+        // Disable the button to prevent double-uploads
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+        progressContainer.classList.add('active');
+        statusLog.classList.add('active');
+        statusLog.innerHTML = ''; // Clear previous logs
+
+        try {
+            // =================================================================
+            // STEP 1: Get a presigned URL from our Lambda
+            // =================================================================
+            // This calls the getPresignedUrl Lambda function through API Gateway.
+            // The Lambda generates a temporary S3 URL and returns it to us.
+            addStatus('🔑', 'Requesting presigned upload URL from Lambda...');
+            updateProgress(10, 'Getting upload URL...');
+
+            const urlResponse = await fetch(apiUrl);
+            if (!urlResponse.ok) {
+                throw new Error(`API returned ${urlResponse.status}: ${urlResponse.statusText}`);
+            }
+
+            const urlData = await urlResponse.json();
+            const { upload_url, s3_key, batch_id } = urlData;
+
+            addStatus('✅', `Got presigned URL (batch: ${batch_id.substring(0, 8)}...)`, 'success');
+            updateProgress(30, 'Uploading CSV to S3...');
+
+            // =================================================================
+            // STEP 2: Upload the file directly to S3
+            // =================================================================
+            // We PUT the file to the presigned URL. This goes straight to S3,
+            // bypassing Lambda entirely. The presigned URL includes a signature
+            // that proves we're authorized to upload.
+            //
+            // WHY fetch() WITH PUT?
+            //   The presigned URL is a standard HTTP endpoint. We use the PUT
+            //   method because that's what S3 expects for uploading objects.
+            //   The file bytes go in the request body.
+            addStatus('☁️', `Uploading ${selectedFile.name} directly to S3...`);
+
+            const uploadResponse = await fetch(upload_url, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'text/csv',  // Must match what the presigned URL expects
+                },
+                body: selectedFile,  // The raw CSV file bytes
+            });
+
+            if (!uploadResponse.ok) {
+                throw new Error(`S3 upload failed: ${uploadResponse.status}`);
+            }
+
+            addStatus('✅', 'File uploaded to S3 successfully!', 'success');
+            updateProgress(70, 'S3 triggering CSV processor...');
+
+            // =================================================================
+            // STEP 3: Wait and show next steps
+            // =================================================================
+            // After the file lands in S3, the S3 event trigger automatically
+            // invokes the csv_processor Lambda. We don't need to call it — it
+            // happens on AWS's side. We just show the user what's happening.
+            addStatus('⚡', 'S3 event will trigger CSV processor Lambda automatically');
+            addStatus('📊', 'Lambda will parse CSV and insert users into PostgreSQL');
+            addStatus('🔗', 'Lambda will call n8n webhook to trigger Workflow B (matching)');
+
+            updateProgress(100, 'Upload complete!');
+
+            addStatus('🎉', `Pipeline started! Batch ID: ${batch_id}`, 'success');
+            addStatus('ℹ️', 'Check n8n dashboard (localhost:5678) to monitor workflow execution');
+
+            uploadBtn.textContent = '✅ Upload complete!';
+
+        } catch (error) {
+            // Show the error and let the user retry
+            addStatus('❌', `Error: ${error.message}`, 'error');
+            updateProgress(0, 'Upload failed');
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = `Retry Upload`;
+        }
+    });
+
+    // =========================================================================
+    // HELPER FUNCTIONS
+    // =========================================================================
+
+    /**
+     * addStatus — Adds a line to the status log.
+     * Shows step-by-step progress so the user knows what's happening.
+     */
+    function addStatus(icon, message, type = '') {
+        const entry = document.createElement('div');
+        entry.className = 'status-entry';
+        entry.innerHTML = `
+            <span class="status-icon">${icon}</span>
+            <span class="status-message ${type}">${message}</span>
+        `;
+        statusLog.appendChild(entry);
+        // Auto-scroll to the latest message
+        statusLog.scrollTop = statusLog.scrollHeight;
+    }
+
+    /**
+     * updateProgress — Updates the progress bar and text.
+     */
+    function updateProgress(percent, text) {
+        progressFill.style.width = percent + '%';
+        progressText.textContent = text;
+    }
+    </script>
+</body>
+</html>

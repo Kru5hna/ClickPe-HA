@@ -1,0 +1,34 @@
+
+# DOCKER COMPOSE — Runs n8n + PostgreSQL on your machine
+
+# WHY DOCKER COMPOSE?
+#   Instead of installing Postgres and n8n separately, Docker Compose lets you
+#   define both services in one file and start them with `docker compose up`.
+#   The task specifically requires: "docker-compose.yml for launching your
+#   self-hosted n8n instance."
+#
+# HOW IT WORKS:
+#   - Docker creates an isolated network where both containers can talk
+#   - Postgres is the database; n8n is the workflow engine
+#   - n8n connects to Postgres using the hostname "postgres" (the service name)
+#   - Data is persisted in Docker "volumes" so it survives container restarts
+
+
+  # ---------------------------------------------------------------------------
+  # SERVICE 1: PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  # WHAT: A relational database that stores users, loan products, and matches.
+  # WHY POSTGRES: The task explicitly says "RDS for PostgreSQL" — we use the
+  #   same database engine locally so our SQL works identically on AWS RDS.
+  # ---------------------------------------------------------------------------
+
+
+    # ---------------------------------------------------------------------------
+  # SERVICE 2: n8n Workflow Automation Engine
+  # ---------------------------------------------------------------------------
+  # WHAT: n8n is an open-source workflow automation tool (like Zapier/Make).
+  #   You build workflows visually by connecting "nodes" — each node does one
+  #   thing (query a database, make an HTTP request, send an email, etc.)
+  # WHY SELF-HOSTED: The task requires a "self-hosted n8n instance" rather
+  #   than the cloud version, so you have full control.
+  # ---------------------------------------------------------------------------

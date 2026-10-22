@@ -1,0 +1,87 @@
+-- =============================================================================
+-- DATABASE SCHEMA for the Loan Eligibility Engine
+-- =============================================================================
+-- This file runs automatically when Postgres starts for the first time
+-- (Docker mounts it into /docker-entrypoint-initdb.d/).
+--
+-- THREE TABLES:
+--   1. users          — people who uploaded their info via CSV
+--   2. loan_products  — loan offers crawled from bank websites (Workflow A)
+--   3. matches        — which user qualifies for which loan (Workflow B)
+-- =============================================================================
+
+-- =============================================================================
+-- TABLE 1: users
+-- =============================================================================
+-- WHAT: Stores every user from the uploaded CSV file.
+-- WHO WRITES: The Lambda function (csv_processor) parses the CSV and INSERTs here.
+-- WHO READS: Workflow B fetches users to match them against loan products.
+--
+-- COLUMNS EXPLAINED:
+--   user_id          — UUID from the CSV (universally unique identifier)
+--   name             — User's full name (for the notification email)
+--   email            — Where we'd send the loan notification (but we use test
+--                      emails in the demo, never the CSV emails)
+--   monthly_income   — In INR. Used to check "minimum income" loan criteria
+--   credit_score     — 300-900 range. Higher = more creditworthy
+--   employment_status — "Salaried", "Self-Employed", or "Business"
+--   age              — Used to check age-based eligibility criteria
+--   batch_id         — Groups users from the same CSV upload together so
+--                      Workflow B only processes the NEW batch, not all users
+--   created_at       — When this row was inserted
+-- =============================================================================
+
+
+-- INDEX: Speeds up the SQL pre-filter in the optimization pipeline.
+-- When Workflow B runs a JOIN between users and loan_products, Postgres uses
+-- these indexes to quickly find users matching income/credit/age criteria
+-- instead of scanning every single row.
+
+
+-- =============================================================================
+-- TABLE 2: loan_products
+-- =============================================================================
+-- WHAT: Stores loan offers discovered by the web crawler (Workflow A).
+-- WHO WRITES: n8n Workflow A crawls bank websites and INSERTs/UPDATEs here.
+-- WHO READS: Workflow B fetches all products to match against users.
+--
+-- COLUMNS EXPLAINED:
+--   product_id       — Auto-incrementing integer (SERIAL), Postgres generates it
+--   product_name     — e.g. "HDFC Personal Loan", "SBI Xpress Credit"
+--   provider         — The bank/NBFC name, e.g. "HDFC Bank", "Bajaj Finserv"
+--   interest_rate    — Annual percentage, e.g. 10.50 means 10.5% per year
+--   min_income       — Minimum monthly income required (in INR)
+--   max_income       — Maximum monthly income (NULL means no upper limit)
+--   min_credit_score — Minimum CIBIL score required
+--   max_credit_score — Maximum CIBIL score (usually 900, the max possible)
+--   employment_types — Postgres TEXT ARRAY, e.g. {'Salaried','Self-Employed'}
+--                      This lets one product accept multiple employment types.
+--                      We check if a user's status is IN this array.
+--   min_age          — Minimum age to apply (usually 21 or 23)
+--   max_age          — Maximum age (usually 58-65)
+--   source_url       — The webpage we crawled this data from (for reference)
+--   last_crawled     — When Workflow A last updated this row
+-- =============================================================================
+
+
+-- =============================================================================
+-- TABLE 3: matches
+-- =============================================================================
+-- WHAT: Records which user is eligible for which loan product.
+-- WHO WRITES: n8n Workflow B (the matching engine) INSERTs rows here.
+-- WHO READS: n8n Workflow C (notification) fetches matches to build emails.
+--
+-- COLUMNS EXPLAINED:
+--   match_id         — Auto-incrementing primary key
+--   user_id          — FK → users table. Which user matched.
+--   product_id       — FK → loan_products table. Which loan they're eligible for.
+--   match_score      — 0.00 to 1.00 confidence score from our matching pipeline.
+--                      1.00 = perfect match on all criteria.
+--   match_reason     — Human-readable explanation, e.g. "Meets all criteria:
+--                      income ₹80K > min ₹25K, CIBIL 750 > min 700"
+--   batch_id         — Same batch_id as the users table, so Workflow C knows
+--                      which matches are new and need email notifications
+--   notified         — FALSE until Workflow C sends the email, then set to TRUE.
+--                      Prevents sending duplicate emails if the workflow reruns.
+--   created_at       — When this match was discovered
+-- =============================================================================

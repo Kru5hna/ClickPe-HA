@@ -1,0 +1,128 @@
+{
+  "__README__": "=== WORKFLOW C: User Notification (Email via SES) === This workflow runs after Workflow B completes matching. It fetches all new matches for the batch, groups them by user, builds a personalized email listing the loan products they qualify for, and sends it via AWS SES. IMPORTANT NOTES FOR THE DEMO: 1. Do NOT email the sample CSV addresses (they're fake). 2. Use test-inbox aliases: yourname+one@gmail.com, yourname+two@gmail.com 3. In SES sandbox mode, you must verify both sender AND receiver email addresses. 4. Show one received email in the demo video. TRIGGER: Webhook — called by Workflow B after saving matches.",
+  "name": "Workflow C - Email Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "notification-trigger",
+        "options": {}
+      },
+      "id": "webhook-notify",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "notification-trigger",
+      "notes": "WHAT: Listens for POST requests at /webhook/notification-trigger. WHO CALLS IT: Workflow B, after saving all matches to the database. WHAT DATA IT RECEIVES: { batch_id: 'abc-123' }. WHY A SEPARATE WORKFLOW: The task defines three separate workflows (A, B, C). Keeping C separate means you can test email sending independently."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Fetch all un-notified matches for this batch, with user and product details.\n-- We JOIN all three tables to get everything we need in one query:\n-- - User's name and email (for the email)\n-- - Product name, provider, interest rate (for the email content)\n-- - Match score and reason (for personalization)\n--\n-- WHERE notified = FALSE: Only get matches we haven't emailed yet.\n-- This prevents duplicate emails if the workflow runs again.\n--\n-- ORDER BY: Group by user so we can aggregate all products per user.\nSELECT\n    m.match_id,\n    m.user_id,\n    m.match_score,\n    m.match_reason,\n    u.name AS user_name,\n    u.email AS user_email,\n    lp.product_name,\n    lp.provider,\n    lp.interest_rate\nFROM matches m\nJOIN users u ON m.user_id = u.user_id\nJOIN loan_products lp ON m.product_id = lp.product_id\nWHERE m.batch_id = '{{ $json.body.batch_id }}'\n  AND m.notified = FALSE\nORDER BY u.user_id, m.match_score DESC;",
+        "additionalFields": {}
+      },
+      "id": "fetch-matches",
+      "name": "Fetch Unnotified Matches",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 300],
+      "notes": "WHAT: Queries all matches for this batch that haven't been emailed yet. WHY JOIN 3 TABLES: We need data from users (name, email), loan_products (product details), and matches (score, reason) — all in one query to minimize database round-trips. WHY ORDER BY user_id: So the next Code node can group products by user efficiently.",
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "ClickPe Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =================================================================\n// GROUP MATCHES BY USER\n// =================================================================\n// WHAT: The SQL query returns one row per match (user × product).\n//   A single user might match 5 different products. We need to\n//   group them so we send ONE email per user listing ALL their\n//   matched products, not 5 separate emails.\n//\n// HOW: We use a JavaScript Map to group matches by user_id.\n//   For each user, we build:\n//   - Their name and email\n//   - A list of all their matched products\n//   - An HTML email body with a nice table\n//\n// OUTPUT: One n8n item per USER (not per match), containing:\n//   - to_email: where to send (but we override with test addresses)\n//   - subject: email subject line\n//   - html_body: the formatted HTML email\n//   - match_ids: array of match IDs to mark as notified\n// =================================================================\n\nconst userMap = new Map();\n\nfor (const item of $input.all()) {\n  const d = item.json;\n  const userId = d.user_id;\n  \n  if (!userMap.has(userId)) {\n    userMap.set(userId, {\n      user_name: d.user_name,\n      user_email: d.user_email,\n      products: [],\n      match_ids: []\n    });\n  }\n  \n  const user = userMap.get(userId);\n  user.products.push({\n    product_name: d.product_name,\n    provider: d.provider,\n    interest_rate: d.interest_rate,\n    match_score: d.match_score,\n    match_reason: d.match_reason\n  });\n  user.match_ids.push(d.match_id);\n}\n\n// Build the output items — one per user\nconst results = [];\nlet testIndex = 1;\n\nfor (const [userId, userData] of userMap) {\n  // Build the HTML email body\n  const productRows = userData.products.map(p => `\n    <tr>\n      <td style=\"padding: 12px; border-bottom: 1px solid #eee;\">${p.product_name}</td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #eee;\">${p.provider}</td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #eee;\">${p.interest_rate}%</td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #eee;\">${Math.round(p.match_score * 100)}%</td>\n    </tr>\n  `).join('');\n  \n  const htmlBody = `\n    <div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n      <div style=\"background: linear-gradient(135deg, #6c5ce7, #a78bfa); padding: 24px; border-radius: 12px 12px 0 0;\">\n        <h1 style=\"color: white; margin: 0; font-size: 22px;\">💰 Your Loan Matches are Ready!</h1>\n      </div>\n      <div style=\"background: white; padding: 24px; border: 1px solid #eee; border-radius: 0 0 12px 12px;\">\n        <p style=\"color: #333; font-size: 16px;\">Hi <strong>${userData.user_name}</strong>,</p>\n        <p style=\"color: #666;\">Based on your profile, we've found <strong>${userData.products.length} personal loan product${userData.products.length > 1 ? 's' : ''}</strong> you may qualify for:</p>\n        \n        <table style=\"width: 100%; border-collapse: collapse; margin: 20px 0;\">\n          <thead>\n            <tr style=\"background: #f8f9fa;\">\n              <th style=\"padding: 12px; text-align: left; border-bottom: 2px solid #ddd;\">Product</th>\n              <th style=\"padding: 12px; text-align: left; border-bottom: 2px solid #ddd;\">Provider</th>\n              <th style=\"padding: 12px; text-align: left; border-bottom: 2px solid #ddd;\">Rate</th>\n              <th style=\"padding: 12px; text-align: left; border-bottom: 2px solid #ddd;\">Match</th>\n            </tr>\n          </thead>\n          <tbody>\n            ${productRows}\n          </tbody>\n        </table>\n        \n        <p style=\"color: #888; font-size: 13px; margin-top: 20px;\">This is an automated notification from ClickPe Loan Eligibility Engine. Please verify eligibility directly with the provider before applying.</p>\n      </div>\n    </div>\n  `;\n  \n  results.push({\n    json: {\n      user_id: userId,\n      user_name: userData.user_name,\n      // IMPORTANT: We do NOT use the CSV email addresses.\n      // The task says: 'Use test-inbox aliases such as yourname+one@gmail.com'\n      // Replace 'yourname' with your actual Gmail username below.\n      to_email: userData.user_email,\n      subject: `ClickPe: ${userData.products.length} Loan Product${userData.products.length > 1 ? 's' : ''} Matched for You!`,\n      html_body: htmlBody,\n      match_ids: userData.match_ids,\n      product_count: userData.products.length\n    }\n  });\n  \n  // Only process first 5 users for demo (SES sandbox has sending limits)\n  if (results.length >= 5) break;\n}\n\nconsole.log(`Prepared ${results.length} notification emails`);\nreturn results;"
+      },
+      "id": "group-by-user",
+      "name": "Group Matches & Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 300],
+      "notes": "WHAT: Groups all matches by user (so each user gets ONE email with all their matched products) and builds a styled HTML email. WHY GROUP: Without grouping, a user matched to 5 products would get 5 separate emails. That's spammy. One email with a table is professional. WHY HTML EMAIL: A plain text email would work, but an HTML email with a product table looks much better in the demo video. LIMIT: We cap at 5 emails because SES sandbox mode has a daily sending limit of ~200 emails."
+    },
+    {
+      "parameters": {
+        "fromEmail": "your-verified-email@gmail.com",
+        "toEmail": "={{ $json.to_email }}",
+        "subject": "={{ $json.subject }}",
+        "body": "={{ $json.html_body }}",
+        "options": {}
+      },
+      "id": "send-email-ses",
+      "name": "Send Email via AWS SES",
+      "type": "n8n-nodes-base.awsSes",
+      "typeVersion": 1,
+      "position": [1000, 300],
+      "notes": "WHAT: Sends the personalized email via AWS Simple Email Service (SES). SETUP REQUIRED: 1. In AWS Console → SES → Verify your sender email address 2. In SES Sandbox mode, also verify receiver addresses 3. In n8n, create AWS credentials (access key + secret key) 4. Replace 'your-verified-email@gmail.com' with your verified sender SES SANDBOX: By default, SES is in sandbox mode which only allows sending to VERIFIED email addresses. For the demo, verify your test addresses (yourname+one@gmail.com, yourname+two@gmail.com) in the SES console. EXPRESSIONS: {{ $json.to_email }} = the recipient from the Code node. {{ $json.subject }} = the personalized subject line. {{ $json.html_body }} = the HTML email content.",
+      "credentials": {
+        "aws": {
+          "id": "CONFIGURE_ME",
+          "name": "AWS SES Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark all matches for this user as notified so we don't email them again.\n-- We use the match_ids array from the Code node to update specific rows.\nUPDATE matches\nSET notified = TRUE\nWHERE match_id = ANY(ARRAY[{{ $json.match_ids.join(',') }}]::INTEGER[]);",
+        "additionalFields": {}
+      },
+      "id": "mark-notified",
+      "name": "Mark Matches as Notified",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1260, 300],
+      "notes": "WHAT: Sets notified=TRUE for all matches we just emailed. WHY: Prevents duplicate emails. If Workflow C runs again (e.g., retry after a partial failure), it only processes matches where notified=FALSE. HOW: Uses PostgreSQL's ANY() function with an array of match IDs. The expression {{ $json.match_ids.join(',') }} converts the JavaScript array [1,2,3] into the SQL-friendly string '1,2,3'.",
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "ClickPe Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          { "node": "Fetch Unnotified Matches", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Unnotified Matches": {
+      "main": [
+        [
+          { "node": "Group Matches & Build Email HTML", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Group Matches & Build Email HTML": {
+      "main": [
+        [
+          { "node": "Send Email via AWS SES", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Send Email via AWS SES": {
+      "main": [
+        [
+          { "node": "Mark Matches as Notified", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "notification" },
+    { "name": "email" },
+    { "name": "ses" }
+  ]
+}

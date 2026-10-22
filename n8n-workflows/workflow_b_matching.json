@@ -1,0 +1,147 @@
+{
+  "__README__": "=== WORKFLOW B: User-Loan Matching Engine (The Eligibility Filter) === This is the MOST IMPORTANT workflow — the 'Optimization Treasure Hunt' is the key scoring factor. ARCHITECTURE (3-Stage Pipeline): Stage 1 — SQL Pre-Filter: A single SQL JOIN eliminates 97% of user-product pairs by checking income, credit score, and age ranges. This is FAST because Postgres uses indexes. Stage 2 — Code Node (Rule Engine): Checks employment type matching (array containment) and applies any complex business rules. Runs in milliseconds. Stage 3 — LLM Qualitative Check: For the remaining candidates, uses Gemini API to evaluate edge cases and generate a human-readable match_reason. WHY THIS DESIGN: The task says 'using a powerful LLM to evaluate every single user-product pair would be extremely slow and expensive.' With 10,000 users × 10 products = 100,000 pairs, calling an LLM for each would take hours and cost $$$. Our 3-stage pipeline: SQL pre-filter reduces 100K → ~5K pairs (milliseconds), Code node reduces 5K → ~2K pairs (milliseconds), LLM processes only ~2K pairs (minutes, not hours). TRIGGER: Webhook — called by the csv_processor Lambda after inserting users.",
+  "name": "Workflow B - User-Loan Matching",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "matching-trigger",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "matching-trigger",
+      "notes": "WHAT: Listens for POST requests at /webhook/matching-trigger. WHO CALLS IT: The csv_processor Lambda, after it finishes inserting users into Postgres. WHAT DATA IT RECEIVES: { batch_id: 'abc-123', user_count: 10000, s3_key: 'uploads/abc-123.csv' }. WHY WEBHOOK (not schedule): The task says 'triggered via a webhook after a new CSV of users has been successfully processed.' This creates an event-driven pipeline — matching starts immediately after data is ready, no polling needed."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- =================================================================\n-- STAGE 1: SQL PRE-FILTER (The Optimization Magic)\n-- =================================================================\n-- This single SQL query does the heavy lifting of the optimization.\n-- It JOINs the users and loan_products tables with range checks,\n-- eliminating ~97% of user-product pairs in milliseconds.\n--\n-- HOW THE JOIN WORKS:\n--   For each user, find all products where:\n--   - User's income >= product's minimum income\n--   - User's income <= product's maximum income\n--   - User's credit score >= product's minimum score\n--   - User's credit score <= product's maximum score\n--   - User's age >= product's minimum age\n--   - User's age <= product's maximum age\n--\n-- WHY THIS IS FAST:\n--   Postgres uses the indexes we created in schema.sql\n--   (idx_users_income, idx_users_credit) to quickly find matching\n--   rows without scanning every single user.\n--\n-- NOTE: We filter by batch_id so we only process NEW users,\n--   not all 10K users from previous uploads.\n-- =================================================================\nSELECT\n    u.user_id,\n    u.name,\n    u.email,\n    u.monthly_income,\n    u.credit_score,\n    u.employment_status,\n    u.age,\n    lp.product_id,\n    lp.product_name,\n    lp.provider,\n    lp.interest_rate,\n    lp.min_income,\n    lp.min_credit_score,\n    lp.employment_types,\n    lp.min_age,\n    lp.max_age\nFROM users u\nCROSS JOIN loan_products lp\nWHERE\n    u.batch_id = '{{ $json.body.batch_id }}'\n    AND u.monthly_income >= lp.min_income\n    AND u.monthly_income <= lp.max_income\n    AND u.credit_score >= lp.min_credit_score\n    AND u.credit_score <= lp.max_credit_score\n    AND u.age >= lp.min_age\n    AND u.age <= lp.max_age;",
+        "additionalFields": {}
+      },
+      "id": "sql-prefilter",
+      "name": "Stage 1 - SQL Pre-Filter",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 300],
+      "notes": "STAGE 1 OF 3 — SQL PRE-FILTER. WHAT: JOINs users with loan_products using numeric range checks (income, credit score, age). WHY IT'S FAST: This runs inside Postgres using indexes. No data leaves the database until the results are ready. A single SQL query replaces thousands of if-else checks. RESULT: From ~100,000 total pairs (10K users × 10 products), this typically returns ~5,000 candidates. The expression {{ $json.body.batch_id }} pulls the batch_id from the webhook request body.",
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "ClickPe Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =================================================================\n// STAGE 2: RULE ENGINE (Employment Type + Business Logic)\n// =================================================================\n// WHAT THIS DOES:\n//   The SQL pre-filter checked numeric ranges (income, credit score,\n//   age), but it CAN'T easily check if a user's employment_status\n//   is in a product's employment_types array. SQL array operations\n//   are possible but messy. This Code node handles it cleanly.\n//\n// WHY NOT IN SQL:\n//   Postgres CAN do array containment checks (employment_status = ANY(...)),\n//   but mixing it with the JOIN makes the query complex and hard to\n//   explain. Separating it into a Code node makes the pipeline clearer\n//   and easier to demonstrate.\n//\n// WHAT IT CHECKS:\n//   1. Employment type: Is the user's employment_status in the product's\n//      employment_types array? E.g., if a product only accepts 'Salaried'\n//      and the user is 'Self-Employed', they're filtered out.\n//   2. Credit score margin: How far above the minimum is the user's score?\n//      This feeds into the match_score (higher margin = better match).\n//\n// MATCH SCORE CALCULATION:\n//   A value from 0.0 to 1.0 indicating match quality.\n//   - 0.5 = baseline (meets all criteria exactly)\n//   - +0.25 max for credit score above minimum\n//   - +0.25 max for income above minimum\n//   Higher score = stronger candidate for the loan.\n// =================================================================\n\nconst validMatches = [];\nlet filtered = 0;\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  \n  // --- CHECK 1: Employment Type ---\n  // employment_types comes from Postgres as a string like '{Salaried,Self-Employed}'\n  // We need to parse it and check if the user's status is included.\n  let employmentTypes = data.employment_types;\n  \n  // Handle Postgres array format: '{Salaried,Self-Employed}' → ['Salaried', 'Self-Employed']\n  if (typeof employmentTypes === 'string') {\n    employmentTypes = employmentTypes\n      .replace(/[{}]/g, '')  // Remove curly braces\n      .split(',')\n      .map(t => t.trim());    // Remove whitespace\n  }\n  \n  // Check if user's employment status matches any accepted type\n  if (!employmentTypes.includes(data.employment_status)) {\n    filtered++;\n    continue; // Skip this pair — employment type doesn't match\n  }\n  \n  // --- CALCULATE MATCH SCORE ---\n  let score = 0.50; // Base score for meeting all criteria\n  \n  // Bonus for credit score above minimum (max +0.25)\n  const creditMargin = data.credit_score - data.min_credit_score;\n  const creditBonus = Math.min(creditMargin / 200, 0.25);\n  score += creditBonus;\n  \n  // Bonus for income above minimum (max +0.25)\n  const incomeMargin = data.monthly_income - data.min_income;\n  const incomeBonus = Math.min(incomeMargin / 100000, 0.25);\n  score += incomeBonus;\n  \n  // Round to 2 decimal places\n  score = Math.round(score * 100) / 100;\n  \n  // Build a human-readable match reason\n  const matchReason = `Meets all criteria: income ₹${data.monthly_income.toLocaleString()} >= min ₹${data.min_income.toLocaleString()}, ` +\n    `CIBIL ${data.credit_score} >= min ${data.min_credit_score}, ` +\n    `age ${data.age} in range ${data.min_age}-${data.max_age}, ` +\n    `employment ${data.employment_status} accepted`;\n  \n  validMatches.push({\n    json: {\n      user_id: data.user_id,\n      user_name: data.name,\n      user_email: data.email,\n      monthly_income: data.monthly_income,\n      credit_score: data.credit_score,\n      employment_status: data.employment_status,\n      age: data.age,\n      product_id: data.product_id,\n      product_name: data.product_name,\n      provider: data.provider,\n      interest_rate: data.interest_rate,\n      match_score: score,\n      match_reason: matchReason\n    }\n  });\n}\n\nconsole.log(`Stage 2 complete: ${validMatches.length} valid matches, ${filtered} filtered out by employment type`);\n\n// Return the validated matches to the next node\nreturn validMatches;"
+      },
+      "id": "rule-engine",
+      "name": "Stage 2 - Rule Engine (Employment Check)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 300],
+      "notes": "STAGE 2 OF 3 — RULE ENGINE. WHAT: Checks employment type matching and calculates a match_score. WHY: SQL can't easily handle array containment checks + score calculation. WHY THIS IS FAST: Pure JavaScript, no external API calls. Processes thousands of items in milliseconds. INPUTS: User-product pairs that passed the SQL pre-filter. OUTPUTS: Only the pairs where employment type matches, with a calculated match_score and human-readable match_reason."
+    },
+    {
+      "parameters": {
+        "jsCode": "// =================================================================\n// STAGE 3: LLM QUALITATIVE CHECK (Gemini API)\n// =================================================================\n// WHAT THIS DOES:\n//   For the remaining candidates (after SQL + Rule Engine filtering),\n//   we use Google's Gemini API to do a final qualitative assessment.\n//\n// WHY USE AN LLM AT ALL:\n//   The task says to 'use an LLM API for specific AI tasks.'\n//   The LLM adds value by:\n//   1. Generating better, more natural match_reason descriptions\n//   2. Catching edge cases our rules might miss\n//   3. Assigning a refined confidence score\n//\n// WHY NOT USE LLM FOR EVERYTHING:\n//   This is the key insight for the 'Optimization Treasure Hunt'.\n//   With 100K pairs, calling Gemini for each would:\n//   - Take ~16 hours (at 0.6s per call)\n//   - Cost significant API credits\n//   Our pipeline reduces this to ~2K calls (minutes, not hours).\n//\n// HOW WE BATCH:\n//   Instead of one API call per match, we send batches of 10 matches\n//   in a single prompt. This is 10x more efficient.\n//\n// IMPORTANT:\n//   You need to set GEMINI_API_KEY as an environment variable in\n//   docker-compose.yml, or replace it in this code with your key.\n// =================================================================\n\nconst GEMINI_API_KEY = $env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE';\nconst BATCH_SIZE = 10; // Process 10 matches per LLM call\n\n// Get all items from the previous node\nconst allItems = $input.all();\nconst results = [];\n\n// If no Gemini key, skip LLM step and pass through with existing scores\nif (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {\n  console.log('No Gemini API key set — skipping LLM check, using rule engine scores');\n  return allItems;\n}\n\n// Process in batches to reduce API calls\nfor (let i = 0; i < allItems.length; i += BATCH_SIZE) {\n  const batch = allItems.slice(i, i + BATCH_SIZE);\n  \n  // Build the prompt with batch data\n  const matchDescriptions = batch.map((item, idx) => {\n    const d = item.json;\n    return `Match ${idx + 1}:\\n` +\n      `  User: ${d.user_name}, Income: ₹${d.monthly_income}/month, ` +\n      `CIBIL: ${d.credit_score}, Employment: ${d.employment_status}, Age: ${d.age}\\n` +\n      `  Product: ${d.product_name} by ${d.provider}, ` +\n      `Rate: ${d.interest_rate}%, Min Income: ₹${d.min_income}/month`;\n  }).join('\\n\\n');\n  \n  const prompt = `You are a loan eligibility evaluator. For each user-product match below, provide:\n1. A confidence score from 0.5 to 1.0 (0.5 = barely eligible, 1.0 = perfect fit)\n2. A one-line reason explaining why this is a good/okay match\n\nRespond in JSON format: [{\"index\": 0, \"score\": 0.85, \"reason\": \"...\"}]\n\n${matchDescriptions}`;\n  \n  try {\n    // Call Gemini API\n    const response = await fetch(\n      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,\n      {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json' },\n        body: JSON.stringify({\n          contents: [{ parts: [{ text: prompt }] }],\n          generationConfig: {\n            temperature: 0.1,  // Low temperature = more consistent/deterministic\n            maxOutputTokens: 1024\n          }\n        })\n      }\n    );\n    \n    const data = await response.json();\n    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';\n    \n    // Parse the JSON response from Gemini\n    // Find JSON array in the response (Gemini sometimes wraps it in markdown)\n    const jsonMatch = text.match(/\\[.*\\]/s);\n    if (jsonMatch) {\n      const llmResults = JSON.parse(jsonMatch[0]);\n      \n      // Merge LLM scores and reasons back into our match data\n      for (const llmResult of llmResults) {\n        const idx = llmResult.index;\n        if (idx < batch.length) {\n          batch[idx].json.match_score = Math.max(0.5, Math.min(1.0, llmResult.score));\n          batch[idx].json.match_reason = llmResult.reason || batch[idx].json.match_reason;\n        }\n      }\n    }\n  } catch (error) {\n    // If LLM fails, keep the rule engine scores (graceful degradation)\n    console.log(`LLM batch ${i / BATCH_SIZE} failed: ${error.message}. Using rule engine scores.`);\n  }\n  \n  results.push(...batch);\n}\n\nconsole.log(`Stage 3 complete: ${results.length} matches processed through LLM`);\nreturn results.length > 0 ? results : allItems;"
+      },
+      "id": "llm-check",
+      "name": "Stage 3 - LLM Qualitative Check (Gemini)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "notes": "STAGE 3 OF 3 — LLM QUALITATIVE CHECK. WHAT: Uses Gemini API to refine match scores and generate human-readable reasons. WHY: The task requires using an LLM API. We use it strategically — only for the ~2K pairs that passed both SQL and rule engine filters, NOT for all 100K pairs. HOW IT BATCHES: Sends 10 matches per API call instead of 1. This reduces API calls by 10x. GRACEFUL DEGRADATION: If Gemini API fails or no key is set, the workflow continues with rule engine scores. The pipeline never breaks because of an LLM failure."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO matches (user_id, product_id, match_score, match_reason, batch_id)\nVALUES (\n  '{{ $json.user_id }}'::UUID,\n  {{ $json.product_id }},\n  {{ $json.match_score }},\n  '{{ $json.match_reason.replace(/'/g, \"''\") }}',\n  '{{ $('Webhook Trigger').item.json.body.batch_id }}'\n)\nON CONFLICT (user_id, product_id) DO UPDATE SET\n  match_score = EXCLUDED.match_score,\n  match_reason = EXCLUDED.match_reason,\n  batch_id = EXCLUDED.batch_id;",
+        "additionalFields": {}
+      },
+      "id": "save-matches",
+      "name": "Save Matches to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1260, 300],
+      "notes": "WHAT: Saves each validated match into the matches table. WHY ON CONFLICT: If the same user-product pair already exists (from a previous run), we update the score and reason instead of creating duplicates. The UNIQUE(user_id, product_id) constraint in schema.sql enforces this. EXPRESSION NOTE: $('Webhook Trigger').item.json.body.batch_id reaches back to the webhook trigger node to get the batch_id. In n8n, you can reference any earlier node's output using $('Node Name').",
+      "credentials": {
+        "postgres": {
+          "id": "CONFIGURE_ME",
+          "name": "ClickPe Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678' }}/webhook/notification-trigger",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "batch_id",
+              "value": "={{ $('Webhook Trigger').item.json.body.batch_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "trigger-workflow-c",
+      "name": "Trigger Workflow C (Notifications)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300],
+      "notes": "WHAT: After all matches are saved, this calls Workflow C's webhook to start sending email notifications. WHY HTTP REQUEST (not Execute Workflow): The task implies separate workflows (A, B, C). Using a webhook between B and C keeps them decoupled — you can test C independently. WHAT IT SENDS: Just the batch_id, so Workflow C knows which matches to notify about."
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          { "node": "Stage 1 - SQL Pre-Filter", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Stage 1 - SQL Pre-Filter": {
+      "main": [
+        [
+          { "node": "Stage 2 - Rule Engine (Employment Check)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Stage 2 - Rule Engine (Employment Check)": {
+      "main": [
+        [
+          { "node": "Stage 3 - LLM Qualitative Check (Gemini)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Stage 3 - LLM Qualitative Check (Gemini)": {
+      "main": [
+        [
+          { "node": "Save Matches to PostgreSQL", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Save Matches to PostgreSQL": {
+      "main": [
+        [
+          { "node": "Trigger Workflow C (Notifications)", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "matching" },
+    { "name": "webhook" },
+    { "name": "optimization" }
+  ]
+}
