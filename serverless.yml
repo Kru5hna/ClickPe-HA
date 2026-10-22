@@ -14,9 +14,7 @@ provider:
   # These are injected at deploy time, so you don't hardcode values in code.
   environment:
     # UPLOAD_BUCKET: The S3 bucket name for CSV uploads.
-    # !Ref is CloudFormation syntax — it references the S3 bucket we create below
-    # and resolves to its actual name at deploy time.
-    UPLOAD_BUCKET: !Ref UploadBucket
+    UPLOAD_BUCKET: clickpe-csv-uploads-${self:provider.stage}
 
     # Database connection settings.
     # In production, these would point to your RDS instance.

@@ -6,12 +6,14 @@ import os           # For reading environment variables
 # Initialize the S3 client.
 # boto3 automatically uses the Lambda's IAM role for credentials.
 # (You don't need to hardcode AWS keys — Lambda gets permissions from its role.)
-s3_client = boto3.client("s3")
+s3_client = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
 # The S3 bucket name comes from an environment variable set in serverless.yml.
-# We don't hardcode it because the bucket name might change between environments
-# (dev, staging, prod).
+# In serverless-offline, CloudFormation !Ref resolves to '[object Object]', so we fallback
+# to the actual bucket name.
 BUCKET_NAME = os.environ.get("UPLOAD_BUCKET")
+if not BUCKET_NAME or BUCKET_NAME == "[object Object]":
+    BUCKET_NAME = "clickpe-csv-uploads-dev"
 
 
 def handler(event, context):
@@ -40,13 +42,18 @@ def handler(event, context):
         # upload simultaneously.
         s3_key = f"uploads/{batch_id}.csv"
 
+        # S3 bucket name
+        bucket = os.environ.get("UPLOAD_BUCKET", "clickpe-csv-uploads-dev")
+        if not bucket or "object" in str(bucket).lower():
+            bucket = "clickpe-csv-uploads-dev"
+
         # generate_presigned_url creates a temporary URL (valid for 300 seconds)
         # that allows uploading a file to the specified S3 key.
         # "put_object" means this URL can only be used for uploading, not downloading.
         presigned_url = s3_client.generate_presigned_url(
             ClientMethod="put_object",     # Only allows PUT (upload), not GET (download)
             Params={
-                "Bucket": BUCKET_NAME,
+                "Bucket": bucket,
                 "Key": s3_key,
                 "ContentType": "text/csv",  # Only accept CSV files
             },
