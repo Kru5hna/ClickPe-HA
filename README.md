@@ -6,94 +6,7 @@
 
 ## 🏗️ System Architecture
 
-### Native Mermaid Architecture Diagram
-
-```mermaid
-flowchart TD
-    subgraph Client ["🖥️ Client Layer"]
-        UI["Minimalist Frontend UI<br/>(index.html)"]
-    end
-
-    subgraph AWS_Cloud ["☁️ AWS Serverless Infrastructure"]
-        APIGW["API Gateway<br/>GET /upload-url"]
-        LambdaPresign["Lambda: getPresignedUrl<br/>(Python 3.11)"]
-        S3Bucket[("Amazon S3 Bucket<br/>clickpe-csv-uploads-dev")]
-        LambdaProcessor["Lambda: processCsv<br/>(Python 3.11 / psycopg2)"]
-        SES["Amazon SES<br/>(Simple Email Service)"]
-    end
-
-    subgraph DB_Layer ["🐘 Data Persistence (PostgreSQL)"]
-        DB[("PostgreSQL 16 Database")]
-        T_Users[("users table<br/>(UUID, income, credit, age)")]
-        T_Loans[("loan_products table<br/>(criteria, rates, providers)")]
-        T_Matches[("matches table<br/>(scores, reasons, notified)")]
-        DB --- T_Users
-        DB --- T_Loans
-        DB --- T_Matches
-    end
-
-    subgraph n8n_Engine ["⚡ Self-Hosted n8n Automation Engine"]
-        subgraph WFA ["Workflow A: Product Discovery"]
-            SchedTrigger["⏰ Daily Schedule Trigger<br/>(6:00 AM IST)"]
-            BankCrawl["HTTP Request Nodes<br/>(Bajaj, HDFC, ICICI)"]
-            ExtractHTML["HTML Extract & Normalize"]
-            UpsertLoans["Postgres: Upsert Products"]
-            SchedTrigger --> BankCrawl --> ExtractHTML --> UpsertLoans
-        end
-
-        subgraph WFB ["Workflow B: 3-Stage Matching Engine"]
-            WH_B["📥 Webhook Trigger<br/>POST /matching-trigger"]
-            SQLFilter["Stage 1: SQL Pre-Filter<br/>(100k → ~5k pairs)"]
-            RuleEngine["Stage 2: JS Rule Engine<br/>(~5k → ~2k pairs)"]
-            LLM["Stage 3: Gemini LLM<br/>(Batch qualitative scoring)"]
-            SaveMatches["Postgres: Save Matches<br/>(ON CONFLICT DO NOTHING)"]
-            TriggerC["HTTP Request:<br/>Trigger Workflow C"]
-            
-            WH_B --> SQLFilter --> RuleEngine --> LLM --> SaveMatches --> TriggerC
-        end
-
-        subgraph WFC ["Workflow C: Notification Engine"]
-            WH_C["📥 Webhook Trigger<br/>POST /notification-trigger"]
-            FetchUnnotified["Postgres: Fetch Unnotified<br/>(JOIN users + products)"]
-            GroupUser["Code Node: Group By User<br/>& Build HTML Email"]
-            SendSES["AWS SES Node<br/>(Test Gmail Aliases)"]
-            MarkNotified["Postgres: Mark Notified<br/>(SET notified = TRUE)"]
-
-            WH_C --> FetchUnnotified --> GroupUser --> SendSES --> MarkNotified
-        end
-    end
-
-    %% Flow Connections
-    UI -- "1. Request Presigned URL" --> APIGW
-    APIGW --> LambdaPresign
-    LambdaPresign -- "2. Return Presigned S3 PUT URL" --> UI
-    UI -- "3. Direct Multipart PUT Upload" --> S3Bucket
-    S3Bucket -- "4. s3:ObjectCreated:* Event" --> LambdaProcessor
-    LambdaProcessor -- "5. Bulk Copy / Stream Insert" --> T_Users
-    LambdaProcessor -- "6. Trigger Webhook with batch_id" --> WH_B
-    UpsertLoans -.-> T_Loans
-    SQLFilter -. "Reads users & products" .-> DB
-    SaveMatches -. "Inserts matches" .-> T_Matches
-    TriggerC --> WH_C
-    FetchUnnotified -. "Reads unnotified" .-> T_Matches
-    SendSES --> SES
-    SES -- "7. Delivers Loan Summary Email" --> Client
-    MarkNotified -. "Updates notified status" .-> T_Matches
-
-    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#fff;
-    classDef n8n fill:#EA4B71,stroke:#1E1E1E,stroke-width:2px,color:#fff;
-    classDef db fill:#336791,stroke:#1E1E1E,stroke-width:2px,color:#fff;
-    classDef client fill:#24292e,stroke:#0366d6,stroke-width:2px,color:#fff;
-
-    class APIGW,LambdaPresign,S3Bucket,LambdaProcessor,SES aws;
-    class WFA,WFB,WFC,SchedTrigger,BankCrawl,ExtractHTML,UpsertLoans,WH_B,SQLFilter,RuleEngine,LLM,SaveMatches,TriggerC,WH_C,FetchUnnotified,GroupUser,SendSES,MarkNotified n8n;
-    class DB,T_Users,T_Loans,T_Matches db;
-    class UI,Client client;
-```
-
----
-
-### ASCII Diagram (Plain-Text Fallback)
+![ClickPe Architecture Diagram](architecture%20diagram.png)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -399,7 +312,6 @@ ClickPe/
 ├── docker-compose.yml              # PostgreSQL + n8n Docker orchestration
 ├── serverless.yml                  # AWS Lambda, API Gateway, S3 & IAM IaC
 ├── README.md                       # Complete technical documentation
-├── VIDEO_SCRIPT.md                 # 5-10 minute presentation & demo walkthrough
 ├── users.csv                       # Sample dataset (10,000 user records)
 │
 ├── frontend/
@@ -439,4 +351,3 @@ As per instructions, the following GitHub accounts have been invited:
 
 A complete 5-10 minute end-to-end technical demonstration is available here:
 * **Demo Video Link**: `[INSERT_YOUTUBE_OR_LOOM_LINK_HERE]`
-* **Video Script & Outline**: See [VIDEO_SCRIPT.md](file:///k:/ClickPe/VIDEO_SCRIPT.md) for the exact talking points, node-by-node walkthrough, and test cases shown.

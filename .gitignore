@@ -39,3 +39,7 @@ Thumbs.db
 .aws/
 credentials
 
+# Video script (local only)
+VIDEO_SCRIPT.md
+
+
