@@ -1,25 +1,21 @@
-# =============================================================================
-# LAMBDA 1: Presigned URL Generator
-# =============================================================================
-# WHAT THIS DOES:
-#   The frontend (upload page) calls this Lambda to get a "presigned URL" —
-#   a temporary, secure URL that lets the browser upload a file directly to S3.
-#
-# WHY NOT UPLOAD THROUGH LAMBDA DIRECTLY?
-#   The task says: "A direct upload through a standard Lambda-backed API Gateway
-#   endpoint can hit request size and timeout limits. We are looking for a more
-#   professional, event-driven pattern."
-#
-#   Lambda has a 6MB payload limit and 30-second API Gateway timeout.
-#   Our CSV is ~1MB now, but could be much larger. The "professional pattern" is:
-#
-#   1. Frontend asks this Lambda for a presigned URL
-#   2. This Lambda generates the URL using AWS SDK (takes ~100ms)
-#   3. Frontend uploads the CSV directly to S3 using that URL (bypasses Lambda)
-#   4. S3 triggers the csv_processor Lambda (event-driven, no size limits)
-#
-# FLOW:
-#   Browser → API Gateway → this Lambda → returns presigned URL
-#   Browser → S3 (direct upload using the URL)
-#   S3 → triggers csv_processor Lambda (automatically)
-# =============================================================================
+# LAMBDA 1: PRESIGNED URL GENERATOR
+
+## Problem It Solves
+Direct browser uploads via API Gateway/Lambda face hard architectural ceilings:
+- 6MB maximum payload size limit.
+- 30-second API Gateway HTTP timeout.
+- Cost and memory overhead from buffering large CSV payloads in Lambda memory.
+
+## Architectural Solution (Presigned S3 URL)
+Instead of streaming file bytes through Lambda, the frontend requests a temporary signed upload ticket:
+1. Browser calls `GET /upload-url`.
+2. Lambda generates a presigned S3 PUT URL (valid for 300 seconds) with a unique batch UUID.
+3. Browser uploads the raw CSV file directly to Amazon S3 via `PUT`.
+4. The upload completely bypasses Lambda runtime limits, supporting multi-gigabyte datasets with zero latency bottlenecks.
+
+## Event Flow
+```
+Browser ──(GET /upload-url)──> API Gateway ──> getPresignedUrl Lambda 
+Browser <──(Signed S3 URL + Batch ID)─────────┘
+Browser ──(Direct PUT)──> Amazon S3 Bucket
+```

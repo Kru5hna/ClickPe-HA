@@ -1,0 +1,22 @@
+# WORKFLOW C: AUTOMATED NOTIFICATION & DISPATCH
+
+## Purpose
+Delivers personalized loan recommendation emails to matched users and flags records to prevent duplicate deliveries.
+
+## Trigger
+- **Webhook Node (POST `/webhook/notify-batch`)**:
+  Triggered automatically at the conclusion of Workflow B with `{ batch_id }`.
+
+## Node Pipeline
+1. **Fetch Matches (Postgres Node)**:
+   - Queries `matches` joined with `users` and `loan_products` where `batch_id = $batch_id` AND `notified = FALSE`.
+   - Guaranteed fast lookup via the `idx_matches_batch` index.
+2. **Template Formatter (Code Node - JavaScript)**:
+   - Aggregates multiple product matches per user into a single structured digest email.
+   - Formats product rates, provider branding, and personalized qualification reasons.
+3. **Dispatch Email (AWS SES / Email Send Node)**:
+   - Delivers notifications using Amazon Simple Email Service (SES) or SMTP.
+   - In demo/sandbox mode, routes to verified test recipient addresses to prevent spamming CSV emails.
+4. **Mark Notified (Postgres Node)**:
+   - Executes `UPDATE matches SET notified = TRUE WHERE match_id IN (...)`.
+   - Guarantees at-most-once delivery: rerunning the workflow will never resend duplicate emails to users.

@@ -1,0 +1,20 @@
+# WORKFLOW A: AUTOMATED LOAN PRODUCT CRAWLER
+
+## Purpose
+Maintains an up-to-date catalog of active loan products and eligibility criteria in PostgreSQL.
+
+## Trigger
+- **Schedule Trigger**: Runs on a recurring schedule (default: 24h cron) or can be executed manually inside the n8n canvas.
+
+## Node Pipeline
+1. **Schedule Trigger**: Fires automated crawling cycle.
+2. **HTTP Request Node**: Fetches bank product listing pages or financial aggregator endpoints.
+3. **HTML Extract / Code Node**:
+   - Parses product terms: `product_name`, `provider`, `interest_rate`, `min_income`, `min_credit_score`, `employment_types`, `min_age`, `max_age`.
+   - Normalizes data into typed records matching our database schema.
+4. **Postgres Node (Upsert)**:
+   - Uses `INSERT INTO loan_products (...) VALUES (...) ON CONFLICT (product_name) DO UPDATE SET ...`
+   - Keeps rates and eligibility rules fresh without creating duplicate product entries.
+
+## Assessment Highlight
+Automates credit offer discovery and dynamically feeds updated criteria into Workflow B without manual database maintenance.

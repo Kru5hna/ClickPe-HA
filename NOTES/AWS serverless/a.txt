@@ -1,21 +1,27 @@
-# =============================================================================
-# SERVERLESS FRAMEWORK CONFIGURATION
-# =============================================================================
-# WHAT IS SERVERLESS FRAMEWORK?
-#   A tool that reads this YAML file and automatically creates AWS resources
-#   (Lambda functions, S3 buckets, IAM roles, API Gateway endpoints, etc.)
-#   You run `serverless deploy` and it does everything — no clicking around
-#   in the AWS Console.
-#
-# WHY USE IT?
-#   The task requires: "A serverless.yml file to deploy all required AWS resources."
-#   It also makes your infrastructure reproducible — anyone can deploy the same
-#   setup by running one command.
-#
-# HOW TO DEPLOY:
-#   1. Install: npm install -g serverless
-#   2. Configure AWS credentials: serverless config credentials --provider aws
-#      --key YOUR_KEY --secret YOUR_SECRET
-#   3. Deploy: serverless deploy
-#   4. Remove everything: serverless remove
-# =============================================================================
+# SERVERLESS FRAMEWORK INFRASTRUCTURE (IaC)
+
+## Purpose
+`serverless.yml` defines the entire AWS cloud footprint using Infrastructure as Code (IaC). Deploys reproducible, production-grade cloud resources in one step.
+
+## Resources Deployed
+1. **API Gateway (HTTP REST API)**
+   - Exposes `GET /upload-url` to generate S3 presigned upload URLs.
+   - Configured with CORS enabled for frontend browser clients.
+
+2. **AWS Lambda Functions (Python 3.11)**
+   - `getPresignedUrl`: Generates temporary signed S3 PUT URLs with unique batch UUIDs.
+   - `processCsv`: Triggered by S3 upload events; streams and parses CSV rows into PostgreSQL.
+
+3. **Amazon S3 Bucket (`clickpe-csv-uploads`)**
+   - Direct storage for uploaded CSV datasets.
+   - Emits `s3:ObjectCreated:*` events on `uploads/*.csv` to trigger the processing Lambda.
+
+4. **IAM Roles & Security Policies**
+   - Follows principle of least privilege:
+     - S3 PUT access granted for presigned URL generator.
+     - S3 GET + CloudWatch logs granted for CSV processor.
+
+## Deployment Lifecycle
+- Deploy all resources: `npx serverless deploy`
+- Test local offline endpoints: `npx serverless offline`
+- Teardown entire stack: `npx serverless remove`

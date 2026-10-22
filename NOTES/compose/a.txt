@@ -1,34 +1,25 @@
+# DOCKER COMPOSE INFRASTRUCTURE
 
-# DOCKER COMPOSE — Runs n8n + PostgreSQL on your machine
+## Purpose
+Orchestrates the local backend environment with a single command (`docker compose up -d`), spinning up both the self-hosted n8n workflow engine and PostgreSQL database in an isolated container network.
 
-# WHY DOCKER COMPOSE?
-#   Instead of installing Postgres and n8n separately, Docker Compose lets you
-#   define both services in one file and start them with `docker compose up`.
-#   The task specifically requires: "docker-compose.yml for launching your
-#   self-hosted n8n instance."
-#
-# HOW IT WORKS:
-#   - Docker creates an isolated network where both containers can talk
-#   - Postgres is the database; n8n is the workflow engine
-#   - n8n connects to Postgres using the hostname "postgres" (the service name)
-#   - Data is persisted in Docker "volumes" so it survives container restarts
+## Services
+1. **PostgreSQL 16 (`postgres`)**
+   - Stores users, crawled loan offers, and matching results.
+   - Initialized automatically via `db/schema.sql` (mounted into `/docker-entrypoint-initdb.d/`).
+   - Healthcheck ensures DB is accepting connections before dependent services start.
+   - Persistent volume: `postgres_data`.
 
+2. **n8n Automation Engine (`n8n`)**
+   - Self-hosted n8n container (`n8nio/n8n:latest`) exposed on port `5432` / `5678`.
+   - Connected to PostgreSQL using container DNS hostname `postgres`.
+   - Persistent volume: `n8n_data` (stores user accounts and credentials).
 
-  # ---------------------------------------------------------------------------
-  # SERVICE 1: PostgreSQL Database
-  # ---------------------------------------------------------------------------
-  # WHAT: A relational database that stores users, loan products, and matches.
-  # WHY POSTGRES: The task explicitly says "RDS for PostgreSQL" — we use the
-  #   same database engine locally so our SQL works identically on AWS RDS.
-  # ---------------------------------------------------------------------------
+## Key Commands
+- Start services: `docker compose up -d`
+- Stop services: `docker compose down`
+- View logs: `docker compose logs -f n8n`
+- Reset DB/volumes: `docker compose down -v`
 
-
-    # ---------------------------------------------------------------------------
-  # SERVICE 2: n8n Workflow Automation Engine
-  # ---------------------------------------------------------------------------
-  # WHAT: n8n is an open-source workflow automation tool (like Zapier/Make).
-  #   You build workflows visually by connecting "nodes" — each node does one
-  #   thing (query a database, make an HTTP request, send an email, etc.)
-  # WHY SELF-HOSTED: The task requires a "self-hosted n8n instance" rather
-  #   than the cloud version, so you have full control.
-  # ---------------------------------------------------------------------------
+## Interview Takeaway
+Using Docker Compose mirrors AWS RDS locally and satisfies the assessment requirement for self-hosted n8n, ensuring reproducible zero-install execution across any development machine.

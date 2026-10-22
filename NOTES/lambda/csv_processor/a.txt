@@ -1,30 +1,15 @@
-# =============================================================================
-# LAMBDA 2: CSV Processor
-# =============================================================================
-# WHAT THIS DOES:
-#   When a CSV file lands in S3, this Lambda is triggered automatically.
-#   It downloads the CSV, parses every row, and inserts the users into
-#   our PostgreSQL database. Then it calls n8n's webhook to trigger
-#   Workflow B (the user-loan matching engine).
-#
-# HOW IT'S TRIGGERED:
-#   S3 "Event Notification" — when any file is created in the uploads/ folder,
-#   S3 sends an event to this Lambda. This is configured in serverless.yml.
-#   You don't call this Lambda manually; S3 calls it for you.
-#
-# THE EVENT OBJECT:
-#   When S3 triggers a Lambda, it sends a JSON event containing:
-#   {
-#     "Records": [{
-#       "s3": {
-#         "bucket": { "name": "clickpe-csv-uploads" },
-#         "object": { "key": "uploads/abc-123.csv" }
-#       }
-#     }]
-#   }
-#   We extract the bucket name and file key from this to download the file.
-#
-# FLOW:
-#   S3 event → this Lambda → download CSV from S3 → parse rows →
-#   INSERT into Postgres → call n8n webhook (trigger Workflow B)
-# =============================================================================
+# LAMBDA 2: EVENT-DRIVEN CSV PROCESSOR
+
+## Trigger Mechanism
+S3 Event Notification: When an object is created under `uploads/*.csv`, Amazon S3 automatically invokes this function asynchronously with the bucket and object key payload.
+
+## Core Operations
+1. **Stream from S3**: Fetches the uploaded CSV via `boto3` S3 client as an IO stream (no full disk write).
+2. **Batch Ingestion**: Reads CSV rows with `csv.DictReader` and performs a batch insert into PostgreSQL `users` table via `psycopg2.extras.execute_values`.
+3. **Batch Scoping**: Attaches the `batch_id` to every ingested row for deterministic downstream processing.
+4. **n8n Webhook Dispatch**: Triggers n8n Workflow B via an HTTP POST request carrying `{ batch_id, total_users }`.
+
+## Resilience & Production Patterns
+- Ingests in parameterized batches to prevent SQL injection and connection timeouts.
+- Idempotent execution: duplicate files with different batch IDs do not corrupt existing batches.
+- Asynchronous invocation: S3 automatically retries twice if the Lambda execution encounters transient errors.

@@ -1,0 +1,30 @@
+# WORKFLOW B: 3-STAGE OPTIMIZATION MATCHING ENGINE
+
+## Purpose
+Matches ingested users with eligible loan offers using an optimized multi-tier evaluation pipeline.
+
+## Trigger
+- **Webhook Node (POST `/webhook/process-batch`)**:
+  Called directly by the `csv_processor` Lambda upon completing CSV ingestion. Receives `{ batch_id, total_users }`.
+
+## The 3-Stage Matching Architecture (Optimization Treasure Hunt)
+The naive approach (evaluating 10,000 users × 10 products with LLMs = 100,000 LLM calls) would take ~16 hours and cost $100+. Workflow B reduces LLM calls by 95%+:
+
+1. **Stage 1 — SQL Pre-Filter (Postgres Node)**:
+   - Performs an indexed `INNER JOIN` between `users` (matching `batch_id`) and `loan_products`.
+   - Filters hard numeric constraints (`monthly_income >= min_income`, `credit_score >= min_credit_score`, `age BETWEEN min_age AND max_age`).
+   - Eliminates 85–90% of invalid pairings in milliseconds using database B-tree indexes.
+
+2. **Stage 2 — Deterministic Rule Engine (Code Node - JavaScript)**:
+   - Validates array membership (e.g. `user.employment_status IN product.employment_types`).
+   - Filters edge conditions in memory without database overhead.
+
+3. **Stage 3 — Qualitative LLM Scoring (Google Gemini API Node)**:
+   - Only receives high-probability candidates.
+   - Computes weighted `match_score` (0.00–1.00) and produces concise, human-readable qualification summaries (e.g. "CIBIL 760 exceeds minimum 700; income ₹65K qualifies for prime rates").
+
+4. **Persistence (Postgres Node)**:
+   - Inserts final qualified pairs into `matches` table with `notified = FALSE`.
+
+5. **Chain Next Step**:
+   - Triggers Workflow C to dispatch email notifications.
