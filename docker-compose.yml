@@ -78,6 +78,9 @@ services:
       # N8N_DIAGNOSTICS_ENABLED: Disable telemetry/analytics for privacy.
       N8N_DIAGNOSTICS_ENABLED: "false"
 
+      # Allow Code nodes in workflows to access environment variables
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+
     ports:
       # n8n's web UI runs on port 5678.
       # You'll open http://localhost:5678 in your browser to build workflows.

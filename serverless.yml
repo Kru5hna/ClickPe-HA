@@ -1,13 +1,14 @@
-service: clickpe-loan-engine    # Name of your service (used in resource naming)
+service: clickpe-loan-engine # Name of your service (used in resource naming)
 
 # The Serverless Framework version and provider settings
-frameworkVersion: "3"           # Version 3 of Serverless Framework
-
+frameworkVersion: "3" # Version 3 of Serverless Framework
+plugins:
+  - serverless-offline
 provider:
-  name: aws                     # We're deploying to AWS (not Azure, GCP, etc.)
-  runtime: python3.11            # Lambda runtime — Python 3.11 is latest stable
-  region: ap-south-1             # Mumbai region (closest to India for low latency)
-  stage: dev                     # Deployment stage (dev/staging/prod)
+  name: aws # We're deploying to AWS (not Azure, GCP, etc.)
+  runtime: python3.11 # Lambda runtime — Python 3.11 is latest stable
+  region: ap-south-1 # Mumbai region (closest to India for low latency)
+  stage: dev # Deployment stage (dev/staging/prod)
 
   # ENVIRONMENT VARIABLES available to ALL Lambda functions in this service.
   # These are injected at deploy time, so you don't hardcode values in code.
@@ -53,7 +54,6 @@ provider:
 # LAMBDA FUNCTIONS
 # =============================================================================
 functions:
-
   # ---------------------------------------------------------------------------
   # FUNCTION 1: Presigned URL Generator
   # ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ functions:
     # handler format: <file_path>.<function_name>
     # So this means: "run the handler() function in lambda/presigned_url/handler.py"
 
-    timeout: 10    # Max 10 seconds to execute (generating a URL is instant)
+    timeout: 10 # Max 10 seconds to execute (generating a URL is instant)
     memorySize: 128 # 128MB RAM is more than enough for this simple function
 
     events:
@@ -73,9 +73,9 @@ functions:
       # After deploy, you get a URL like:
       # https://abc123.execute-api.ap-south-1.amazonaws.com/dev/upload-url
       - http:
-          path: upload-url       # The URL path
-          method: get            # HTTP GET request
-          cors: true             # Enable CORS so browsers can call this API
+          path: upload-url # The URL path
+          method: get # HTTP GET request
+          cors: true # Enable CORS so browsers can call this API
           # CORS (Cross-Origin Resource Sharing): Without this, a browser
           # running your HTML page on localhost would be blocked from calling
           # this API on a different domain (AWS).
@@ -88,15 +88,15 @@ functions:
   # ---------------------------------------------------------------------------
   processCsv:
     handler: lambda/csv_processor/handler.handler
-    timeout: 300     # 5 minutes — processing 10K rows might take a while
-    memorySize: 512  # 512MB RAM — CSV parsing needs more memory than URL generation
+    timeout: 300 # 5 minutes — processing 10K rows might take a while
+    memorySize: 512 # 512MB RAM — CSV parsing needs more memory than URL generation
 
     # Package individually: Only include this function's files in its deployment
     # package, not the entire project. Keeps the Lambda small and fast to deploy.
     package:
       individually: true
       patterns:
-        - "lambda/csv_processor/**"  # Include only the csv_processor directory
+        - "lambda/csv_processor/**" # Include only the csv_processor directory
 
     events:
       # S3 EVENT: This is the "event-driven pattern" the task wants.
@@ -104,12 +104,12 @@ functions:
       # S3 automatically invokes this Lambda.
       # No polling, no cron jobs — it's instant and automatic.
       - s3:
-          bucket: !Ref UploadBucket   # Which S3 bucket to watch
-          event: s3:ObjectCreated:*    # Trigger on any file creation
+          bucket: !Ref UploadBucket # Which S3 bucket to watch
+          event: s3:ObjectCreated:* # Trigger on any file creation
           rules:
-            - prefix: uploads/         # Only trigger for files in uploads/ folder
-            - suffix: .csv             # Only trigger for .csv files
-          existing: true               # Attach to an existing bucket (not create new)
+            - prefix: uploads/ # Only trigger for files in uploads/ folder
+            - suffix: .csv # Only trigger for .csv files
+          existing: true # Attach to an existing bucket (not create new)
 
 # =============================================================================
 # CUSTOM RESOURCES (CloudFormation)
@@ -134,10 +134,10 @@ resources:
         # Without this, the browser would block the presigned URL upload.
         CorsConfiguration:
           CorsRules:
-            - AllowedHeaders: ["*"]          # Allow any headers
-              AllowedMethods: [GET, PUT]     # Allow GET (download) and PUT (upload)
-              AllowedOrigins: ["*"]          # Allow from any origin (restrict in prod)
-              MaxAge: 3000                   # Cache CORS preflight for 50 minutes
+            - AllowedHeaders: ["*"] # Allow any headers
+              AllowedMethods: [GET, PUT] # Allow GET (download) and PUT (upload)
+              AllowedOrigins: ["*"] # Allow from any origin (restrict in prod)
+              MaxAge: 3000 # Cache CORS preflight for 50 minutes
 
         # Automatically delete uploaded CSVs after 7 days to save storage costs.
         # We've already parsed them into Postgres, so we don't need the raw files.
